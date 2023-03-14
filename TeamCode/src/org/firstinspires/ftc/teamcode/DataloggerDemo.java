@@ -92,34 +92,49 @@ public class DataloggerDemo extends LinearOpMode {
 
     }
 
-    private void logTurnData(double power, double directionInRadians, double error){
-        telemetry.addData("power",String.format("%.6f", power));
-        telemetry.addData("Kp",String.format("%.2f", Kp));
-        telemetry.addData("Ki",String.format("%.2f", Ki));
-        telemetry.addData("Kd",String.format("%.2f", Kd));
-        telemetry.addData("directionInRadians",String.format("%.6f", directionInRadians));
-        telemetry.addData("getHeadingInRadians",String.format("%.6f", getHeadingInRadians()));
-        telemetry.addData("error",String.format("%.6f", error));
+    public void PIDReset(){
+        integralSum = 0;
+        lastError = 0;
+        timer.reset();
+    }
 
-        datalog.addField((long) runtime.milliseconds());
-        datalog.addField(String.format("%.6f", power));
-        datalog.addField(String.format("%.2f", Kp));
-        datalog.addField(String.format("%.2f", Ki));
-        datalog.addField(String.format("%.2f", Kd));
-        datalog.addField(String.format("%.6f", directionInRadians));
-        datalog.addField(String.format("%.6f", getHeadingInRadians()));
-        datalog.addField(String.format("%.6f", error));
-        datalog.addField(timeout.milliseconds());
-        datalog.newLine();
+    private void logDataPoint(double timeout, double runtime, double power,
+                              double directionInRadians, double headingInRadians,
+                              double errorInRadians, double Kp, double Ki, double Kd) {
+        dataPoints[dataPointCount][0]=timeout;
+        dataPoints[dataPointCount][1]=runtime;
+        dataPoints[dataPointCount][2]=power;
+        dataPoints[dataPointCount][3]=directionInRadians;
+        dataPoints[dataPointCount][4]=headingInRadians;
+        dataPoints[dataPointCount][5]=errorInRadians;
+        dataPoints[dataPointCount][6]=Kp;
+        dataPoints[dataPointCount][7]=Ki;
+        dataPoints[dataPointCount][8]=Kd;
+        dataPointCount++;
+    }
+    private void logTurnData(){
+        for (int i = 0; i < dataPointCount; i++) {
+            datalog.addField((long) dataPoints[i][0]);
+            datalog.addField((long) dataPoints[i][1]);
+            datalog.addField(String.format("%.6f", dataPoints[i][2]));
+            datalog.addField(String.format("%.6f", dataPoints[i][3]));
+            datalog.addField(String.format("%.6f", dataPoints[i][4]));
+            datalog.addField(String.format("%.6f", dataPoints[i][5]));
+            datalog.addField(String.format("%.2f", dataPoints[i][6]));
+            datalog.addField(String.format("%.2f", dataPoints[i][7]));
+            datalog.addField(String.format("%.2f", dataPoints[i][8]));
+            datalog.newLine();
+        }
     }
 
     // Filter power
     private double filterPowerInTurn(double requestedPower){
         double filteredPower = requestedPower;
-        double maxPower = 1;
-        double minPower = 0.09;
+        double maxPower = 0.9;
+        double minPower = 0.12;
         if (isVirtualRobot){
             minPower = 0.05;
+            maxPower = 1;
         }
         if ((requestedPower < minPower) && (requestedPower > 0)) {
             filteredPower = minPower;
@@ -140,14 +155,28 @@ public class DataloggerDemo extends LinearOpMode {
 
     IMU.Parameters myIMUparameters;
 
+    int rows = 30000, columns = 9;
+    int dataPointCount = 0;
+
+    private double[][] dataPoints;
+    private void initializeDataAPoints(){
+        dataPoints = new double[rows][columns];
+        // initializing the array elements using for loop
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < columns; j++) {
+                dataPoints[i][j] = 0;
+            }
+        }
+        dataPointCount = 0;
+    }
 
     // Turns Robot in direction specified using PID Controller and IMU.
     private void turnByIMU(double directionInDegrees) {
         double directionInRadians = Math.toRadians(directionInDegrees);
         double lastHeading = getHeadingInRadians();
         double error = angleWrap(directionInRadians - lastHeading);
-        integralSum = 0;
-        lastError = 0;
+        initializeDataAPoints();
+        PIDReset();
         motorFrontLeft.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         motorBackLeft.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         motorFrontRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -160,9 +189,9 @@ public class DataloggerDemo extends LinearOpMode {
         double power = PIDControl(directionInRadians, lastHeading);
         telemetry.addLine("turning");
         telemetry.update();
-        while (((Math.abs(error) > Math.toRadians(1))) && opModeIsActive()) {
+        while (((Math.abs(error) > Math.toRadians(.2))) && opModeIsActive()) {
             if (loopTimer.milliseconds() >= (tick + 10)){
-                tick = loopTimer.milliseconds();
+                tick += 10;
                 lastHeading = getHeadingInRadians();
                 power = PIDControl(directionInRadians, getHeadingInRadians());
                 power = filterPowerInTurn(power);
@@ -171,18 +200,13 @@ public class DataloggerDemo extends LinearOpMode {
                 motorFrontRight.setPower(-power);
                 motorBackRight.setPower(-power);
                 error = angleWrap(directionInRadians - lastHeading);
-                if (dataTimer.time() >= logInterval) {
-                    logTurnData(power,directionInRadians,error);
-                    dataTimer.reset();      // start the interval timer again
-                    updateTelemetry();
-                }
+                logDataPoint(timeout.milliseconds(),runtime.milliseconds(),power,directionInRadians,getHeadingInRadians(),error,Kp,Ki,Kd);
                 if (timeout.seconds()> 5) {
                     break;
                 }
-
             }
         }
-        logTurnData(power,directionInRadians,error);
+        logTurnData();
         telemetry.addLine("rotation complete after " + timeout.time()  + " seconds");
         updateTelemetry();
 
@@ -198,15 +222,15 @@ public class DataloggerDemo extends LinearOpMode {
 
     //points in direction specified using PID Controller and IMU.
     private void pointDirectionV2(double direction) {
-        double Ku = 1;
-        double Tu = 1;
+        double Ku = 1.5;
+        double Tu = 2;
         Boolean isPIDZieglerNicholsMethod = false;
         if (isPIDZieglerNicholsMethod){
             Kp = 0.6 * Ku;
             Ki = 1.2 * Ku/Tu;
             Kd = 0.075 * Ku * Tu;
         } else {
-            Kp = 1.2;
+            Kp = 1.5;
             Ki = 0.1;
             Kd = 0.1;
         }
@@ -245,37 +269,43 @@ public class DataloggerDemo extends LinearOpMode {
 
     public void runOpMode(){
         isVirtualRobot = System.getProperty("os.name").contains("Windows");
-
+        String filename;
         // Speed Variable
         double speed = 0.5;
-
-        LocalDateTime myDateObj = LocalDateTime.now();
-        String filename = "Datalogger Demo" + myDateObj.toString().replace(":","." ) + ".csv";
+        if (isVirtualRobot){
+            LocalDateTime myDateObj = LocalDateTime.now();
+            filename = "Datalogger Demo" + myDateObj.toString().replace(":","." ) + ".csv";
+        } else {
+            filename = "Datalogger Demo" + ".csv";
+        }
         datalog = new Datalogger(filename );
         // Name the fields (column labels) generated by this OpMode.
+        datalog.addField("PID Timer");
         datalog.addField("Runtime (ms)");
         datalog.addField("Power");
-        datalog.addField("PID Kp");
-        datalog.addField("PID Ki");
-        datalog.addField("PID Kd");
         datalog.addField("PID Target Heading");
         datalog.addField("PID Reference Heading");
         datalog.addField("PID Error");
-        datalog.addField("PID Timer");
+        datalog.addField("PID Kp");
+        datalog.addField("PID Ki");
+        datalog.addField("PID Kd");
         datalog.firstLine();                        // end first line (row)
         telemetry.addData("Datalogger started." , "");
         telemetry.addData("file", filename);
-        motorBackLeft = hardwareMap.dcMotor.get("back_left_motor");
-        motorFrontLeft = hardwareMap.dcMotor.get("front_left_motor");
-        motorFrontRight = hardwareMap.dcMotor.get("front_right_motor");
-        motorBackRight= hardwareMap.dcMotor.get("back_right_motor");
+
         if (isVirtualRobot) {
-            motorBackLeft.setDirection(DcMotor.Direction.REVERSE);
-            motorFrontLeft.setDirection(DcMotor.Direction.REVERSE);
+            motorBackLeft = hardwareMap.dcMotor.get("back_left_motor");
+            motorFrontLeft = hardwareMap.dcMotor.get("front_left_motor");
+            motorFrontRight = hardwareMap.dcMotor.get("front_right_motor");
+            motorBackRight= hardwareMap.dcMotor.get("back_right_motor");
         }else {
-            motorBackRight.setDirection(DcMotor.Direction.REVERSE);
-            motorFrontRight.setDirection(DcMotor.Direction.REVERSE);
+            motorBackLeft = hardwareMap.dcMotor.get("Motor2");
+            motorFrontLeft = hardwareMap.dcMotor.get("Motor3");
+            motorFrontRight = hardwareMap.dcMotor.get("Motor0");
+            motorBackRight= hardwareMap.dcMotor.get("Motor1");
         }
+        motorBackLeft.setDirection(DcMotor.Direction.REVERSE);
+        motorFrontLeft.setDirection(DcMotor.Direction.REVERSE);
         motorBackLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         motorFrontLeft.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         motorFrontRight.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -285,11 +315,19 @@ public class DataloggerDemo extends LinearOpMode {
         motorFrontRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         motorBackRight.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
-        frontDistance = hardwareMap.get(DistanceSensor.class, "front_distance");
-        leftDistance = hardwareMap.get(DistanceSensor.class, "left_distance");
-        rightDistance = hardwareMap.get(DistanceSensor.class, "right_distance");
-        backDistance = hardwareMap.get(DistanceSensor.class, "back_distance");
-        colorSensor = hardwareMap.colorSensor.get("color_sensor");
+        if (isVirtualRobot){
+            frontDistance = hardwareMap.get(DistanceSensor.class, "front_distance");
+            leftDistance = hardwareMap.get(DistanceSensor.class, "left_distance");
+            rightDistance = hardwareMap.get(DistanceSensor.class, "right_distance");
+            backDistance = hardwareMap.get(DistanceSensor.class, "back_distance");
+            colorSensor = hardwareMap.colorSensor.get("color_sensor");
+        } else {
+            frontDistance = hardwareMap.get(DistanceSensor.class, "arm distance");
+            leftDistance = hardwareMap.get(DistanceSensor.class, "control distance");
+            rightDistance = hardwareMap.get(DistanceSensor.class, "arm distance");
+            backDistance = hardwareMap.get(DistanceSensor.class, "control distance");
+            colorSensor = hardwareMap.colorSensor.get("color1");
+        }
 
         imu = hardwareMap.get(IMU.class, "imu");
 
