@@ -1,5 +1,6 @@
 package virtual_robot.robots.classes;
 
+import com.qualcomm.robotcore.hardware.CRServoImpl;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorExImpl;
 import com.qualcomm.robotcore.hardware.ServoImpl;
@@ -48,8 +49,10 @@ public class MecanumSlideArmBot extends MecanumPhysicsBase {
      */
     private DcMotorExImpl armMotor = null;
 
-    //Servo to control the hand at the end of the arm. Note use of ServoImpl class rather than Servo interface.
+    //Servo to control the hand/claw at the end of the arm. Note use of ServoImpl class rather than Servo interface.
     private ServoImpl handServo = null;
+    private CRServoImpl leftServo = null;
+    private CRServoImpl rightServo = null;
 
     /*
     Variables representing graphical UI nodes that we will need to manipulate. The @FXML annotation will
@@ -120,7 +123,8 @@ public class MecanumSlideArmBot extends MecanumPhysicsBase {
         armMotor.setPositionLimitsEnabled(true);
 
         //Instantiate the hand servo. Note the cast to ServoImpl.
-        handServo = (ServoImpl)hardwareMap.servo.get("hand_servo");
+        leftServo = (CRServoImpl)hardwareMap.servo.get("left_servo");
+        rightServo = (CRServoImpl)hardwareMap.servo.get("right_servo");
 
         //Deactivate the hardwaremap to prevent users from accessing hardware until after INIT is pressed
         hardwareMap.setActive(false);
@@ -192,7 +196,11 @@ public class MecanumSlideArmBot extends MecanumPhysicsBase {
         hardwareMap.put("arm_motor", new DcMotorExImpl(MotorType.Neverest40));
 
         //Add the ServoImpl object
-        hardwareMap.put("hand_servo", new ServoImpl());
+        //hardwareMap.put("left_servo", new CRServoImpl(90));
+        //hardwareMap.put("right_servo", new CRServoImpl(90));
+        handServo = (ServoImpl)hardwareMap.servo.get("hand_servo");
+        String[] crservoNames = new String[] {"left_servo", "right_servo"};
+        for (String name: crservoNames) hardwareMap.put(name, new CRServoImpl(360));
     }
 
     /**
@@ -216,6 +224,7 @@ public class MecanumSlideArmBot extends MecanumPhysicsBase {
          * Update the value of fingerPos, using the current position of the hand servo. Then set the position
          * of each finger slide joint using this value.
          */
+        //fingerPos =  15 * leftServo.getPositionDegrees();
         fingerPos =  15 * handServo.getInternalPosition();
         leftFingerSlide.setPosition(fingerPos);
         rightFingerSlide.setPosition(-fingerPos);
